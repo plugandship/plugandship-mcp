@@ -25,7 +25,9 @@ async function guard(fn: () => Promise<ReturnType<typeof text>>) {
 }
 
 export function createServer(api = new PlugAndShipApi()) {
-  const server = new McpServer({ name: "plugandship", version: VERSION, title: "Plug and Ship" });
+  const server = new McpServer({ name: "plugandship", version: VERSION, title: "Plug and Ship", websiteUrl: "https://plugandship.dev/developers" }, {
+    instructions: "Read-only search over the Plug and Ship index of MCP servers, agent skills and coding-agent plugins (live GitHub data). Use search_tools to find tools, get_tool for install details, trending for new tools, list_best for curated best-of lists (grok-bot-connectors lists hosted HTTPS MCP endpoints). No auth. About 60 requests per minute per IP.",
+  });
   const ro = { readOnlyHint: true, openWorldHint: true, idempotentHint: true } as const;
 
   server.registerTool("search_tools", {
