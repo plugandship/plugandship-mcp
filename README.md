@@ -10,9 +10,9 @@ Listed in the official MCP Registry as `dev.plugandship/plugandship-mcp`.
 
 | Tool | Arguments | What it returns |
 | --- | --- | --- |
-| `search_tools` | `query`, `type?` (`mcp` / `skill` / `plugin`), `client?` (`claude-code` / `cursor` / `codex` / `grok-bot`), `limit?` (1 to 50, default 10) | Matching tools with stars, install command and page link. `client: "grok-bot"` keeps only MCP servers with a public remote (HTTP) endpoint. |
+| `search_tools` | `query` or `task` (keywords or a plain-language task, e.g. "query my Postgres from Cursor"), `type?` (`mcp` / `skill` / `plugin`), `client?` (`claude-code` / `cursor` / `codex` / `grok-bot`), `remote?` (only MCP servers with a public HTTPS endpoint), `limit?` (1 to 50, default 10) | Tools ranked by relevance (full-text + semantic match; stars, recent commits, a valid one-click config and a license only break ties), each with a one-line reason it matches, install command and page link. Also returns structured output, including what was understood from the task. `client: "grok-bot"` keeps only MCP servers with a public remote (HTTP) endpoint. |
 | `get_tool` | `slug` | Full details for one tool: description, repo, stars, tags, install command, remote endpoint if any. |
-| `trending` | `period` (`day` / `week` / `month`), `type?`, `limit?` | Repos created in the period, ranked by stars per day. |
+| `trending` | `period` (`day` / `week` / `month`), `type?`, `limit?` | Fastest-growing tools: stars gained in the period, from Plug and Ship's own daily star snapshots. |
 | `list_best` | `topic?`, `limit?` | A curated "best of" list. Leave `topic` empty to list topics (for example `grok-bot-connectors`, `voice-agents`, `postgres-mcp-servers`). |
 
 ## Use the hosted endpoint (no install)

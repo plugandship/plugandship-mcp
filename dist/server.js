@@ -1,14 +1,17 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { ApiError, PlugAndShipApi } from "./api.js";
-export const VERSION = "0.1.0";
+export const VERSION = "0.2.0";
 const TYPES = ["mcp", "skill", "plugin"];
 const CLIENTS = ["claude-code", "cursor", "codex", "grok-bot"];
 const fmt = (n) => n.toLocaleString("en-US");
 export function toolLine(t, i) {
-    const bits = [`${i !== undefined ? `${i + 1}. ` : ""}**${t.name}** (${t.type}, ${fmt(t.stars)} stars${t.stars_per_day !== undefined ? `, ${t.stars_per_day}/day` : ""})`];
+    const growth = t.stars_gained !== undefined ? `, +${fmt(t.stars_gained)} in period` : t.stars_per_day !== undefined ? `, ${t.stars_per_day}/day` : "";
+    const bits = [`${i !== undefined ? `${i + 1}. ` : ""}**${t.name}** (${t.type}, ${fmt(t.stars)} stars${growth})`];
     if (t.description)
         bits.push(`   ${t.description.slice(0, 200)}`);
+    if (t.why)
+        bits.push(`   Why: ${t.why}`);
     if (t.remote_endpoint)
         bits.push(`   Remote endpoint: ${t.remote_endpoint}`);
     if (t.install)
@@ -28,24 +31,41 @@ async function guard(fn) {
 }
 export function createServer(api = new PlugAndShipApi()) {
     const server = new McpServer({ name: "plugandship", version: VERSION, title: "Plug and Ship", websiteUrl: "https://plugandship.dev/developers" }, {
-        instructions: "Read-only search over the Plug and Ship index of MCP servers, agent skills and coding-agent plugins (live GitHub data). Use search_tools to find tools, get_tool for install details, trending for new tools, list_best for curated best-of lists (grok-bot-connectors lists hosted HTTPS MCP endpoints). No auth. About 60 requests per minute per IP.",
+        instructions: "Read-only search over the Plug and Ship index of MCP servers, agent skills and coding-agent plugins (live GitHub data). Use search_tools with a plain-language task to find tools (each result says why it matches), get_tool for install details, trending for the fastest-growing tools, list_best for curated best-of lists (grok-bot-connectors lists hosted HTTPS MCP endpoints). No auth. About 60 requests per minute per IP.",
     });
     const ro = { readOnlyHint: true, openWorldHint: true, idempotentHint: true };
+    const hitSchema = z.object({
+        slug: z.string(), name: z.string(), type: z.enum(TYPES), description: z.string().nullable(), stars: z.number(), install: z.string().nullable(),
+        remote_endpoint: z.string().nullable(), page: z.string(), language: z.string().nullable(), license: z.string().nullable(), last_commit: z.string().nullable(),
+        score: z.number().optional(), why: z.string().optional(), reasons: z.array(z.string()).optional(),
+    });
     server.registerTool("search_tools", {
         title: "Search agent tools",
-        description: "Search the Plug and Ship index of MCP servers, agent skills (SKILL.md) and coding-agent plugins. Results are ranked by name match, then GitHub stars, and include install commands. Use client to narrow to a coding agent (grok-bot returns only MCP servers with a public HTTPS endpoint).",
+        description: "Find MCP servers, agent skills (SKILL.md) and coding-agent plugins for a task. Pass a plain-language task (e.g. 'query my Postgres from Cursor', 'post to Slack from Claude Code') or keywords. The task is parsed for kind (MCP/skill/plugin), client (Cursor, Claude Code, Codex, VS Code), remote vs local and language; results are ranked by relevance (full-text + semantic match), with stars, recent commits, a valid one-click config and a license only as tie-breakers. Every result explains why it matches. type, client and remote are strict filters (client grok-bot = MCP servers with a public HTTPS endpoint).",
         inputSchema: {
-            query: z.string().max(100).describe("Keywords, e.g. 'postgres', 'figma', 'browser automation'"),
+            query: z.string().max(300).optional().describe("Keywords or a short task, e.g. 'postgres', 'browser automation', 'query my Postgres from Cursor'"),
+            task: z.string().max(300).optional().describe("What you want to do, in plain language. Used instead of query when given."),
             type: z.enum(TYPES).optional().describe("Only this kind of tool"),
-            client: z.enum(CLIENTS).optional().describe("Only tools for this coding agent"),
+            client: z.enum(CLIENTS).optional().describe("Only tools that name this coding agent (grok-bot: hosted HTTPS MCP servers)"),
+            remote: z.boolean().optional().describe("Only MCP servers with a public HTTPS endpoint (nothing to install)"),
             limit: z.number().int().min(1).max(50).optional().describe("Max results, default 10"),
         },
+        outputSchema: {
+            query: z.string(),
+            interpreted: z.object({ kind: z.string().nullable(), client: z.string().nullable(), remote: z.boolean(), local: z.boolean(), language: z.string().nullable(), terms: z.array(z.string()) }).nullable(),
+            count: z.number(),
+            results: z.array(hitSchema),
+        },
         annotations: ro,
-    }, async ({ query, type, client, limit }) => guard(async () => {
-        const r = await api.search({ query, type, client, limit: limit ?? 10 });
-        if (!r.results.length)
-            return text(`No tools found for "${query}".`);
-        return text(`${r.results.length} result(s) for "${query}"${type ? `, type ${type}` : ""}${client ? `, client ${client}` : ""}:\n\n${r.results.map(toolLine).join("\n\n")}`);
+    }, async ({ query, task, type, client, remote, limit }) => guard(async () => {
+        const q = (task ?? query ?? "").trim();
+        const r = await api.search({ query: q, type, client, remote, limit: limit ?? 10 });
+        const results = r.results.map((t) => ({ slug: t.slug, name: t.name, type: t.type, description: t.description, stars: t.stars, install: t.install, remote_endpoint: t.remote_endpoint, page: t.page, language: t.language, license: t.license, last_commit: t.last_commit, score: t.score, why: t.why, reasons: t.reasons }));
+        const it = r.interpreted;
+        const structuredContent = { query: q, interpreted: it ? { kind: it.kind, client: it.client, remote: it.remote, local: it.local, language: it.language, terms: it.terms } : null, count: results.length, results };
+        const parsed = it ? [it.kind && `kind ${it.kind}`, it.client && `client ${it.client}`, it.remote && "remote", it.local && "local", it.language && `language ${it.language}`].filter(Boolean).join(", ") : "";
+        const head = !r.results.length ? `No tools found for "${q}".` : `${r.results.length} result(s) for "${q}"${type ? `, type ${type}` : ""}${client ? `, client ${client}` : ""}${remote ? ", remote only" : ""}${parsed ? ` (understood: ${parsed})` : ""}:`;
+        return { ...text(`${head}${r.results.length ? `\n\n${r.results.map(toolLine).join("\n\n")}` : ""}`), structuredContent };
     }));
     server.registerTool("get_tool", {
         title: "Get tool details",
@@ -59,7 +79,7 @@ export function createServer(api = new PlugAndShipApi()) {
     }));
     server.registerTool("trending", {
         title: "Trending tools",
-        description: "New MCP servers, skills and plugins created on GitHub in the period, ranked by stars gained per day since creation.",
+        description: "Fastest-growing MCP servers, skills and plugins: stars gained in the period (day, week or month) from Plug and Ship's own daily star snapshots. While less than one period of history exists, a damped lifetime velocity fills in (repos with 20+ stars and a commit in the last 30 days).",
         inputSchema: {
             period: z.enum(["day", "week", "month"]).describe("Time window"),
             type: z.enum(TYPES).optional(),
@@ -69,7 +89,7 @@ export function createServer(api = new PlugAndShipApi()) {
     }, async ({ period, type, limit }) => guard(async () => {
         const r = await api.trending(period, type, limit ?? 10);
         if (!r.results.length)
-            return text(`Nothing new this ${period}.`);
+            return text(`No growth recorded this ${period}.`);
         return text(`Trending this ${period} (${r.method}):\n\n${r.results.map(toolLine).join("\n\n")}`);
     }));
     server.registerTool("list_best", {

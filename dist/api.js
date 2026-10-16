@@ -20,14 +20,14 @@ export class PlugAndShipApi {
         for (const [k, v] of Object.entries(params))
             if (v !== undefined && v !== "")
                 u.searchParams.set(k, String(v));
-        const r = await this.fetchImpl(u, { headers: { accept: "application/json", "user-agent": "plugandship-mcp/0.1.0" }, signal: AbortSignal.timeout(15_000) });
+        const r = await this.fetchImpl(u, { headers: { accept: "application/json", "user-agent": "plugandship-mcp/0.2.0" }, signal: AbortSignal.timeout(15_000) });
         const body = (await r.json().catch(() => ({})));
         if (!r.ok)
             throw new ApiError(r.status, body?.message || `HTTP ${r.status}`);
         return body;
     }
     search(q) {
-        return this.get("/search", { q: q.query, type: q.type, client: q.client, limit: q.limit });
+        return this.get("/search", { q: q.query, type: q.type, client: q.client, remote: q.remote ? 1 : undefined, limit: q.limit });
     }
     tool(slug) { return this.get(`/tools/${encodeURIComponent(slug)}`); }
     trending(period, type, limit) { return this.get("/trending", { period, type, limit }); }

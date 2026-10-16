@@ -4,8 +4,11 @@ export const DEFAULT_BASE = "https://plugandship.dev";
 export type Tool = {
   slug: string; name: string; type: "mcp" | "skill" | "plugin"; description: string | null; page: string; repo_url: string; homepage: string | null;
   stars: number; upvotes: number; install: string | null; remote_endpoint: string | null; categories: string[]; tags: string[];
-  language: string | null; license: string | null; last_commit: string | null; created: string | null; verified: boolean; stars_per_day?: number;
+  language: string | null; license: string | null; last_commit: string | null; created: string | null; verified: boolean; stars_per_day?: number; stars_gained?: number;
+  score?: number; why?: string; reasons?: string[];
 };
+
+export type Interpretation = { kind: string | null; client: string | null; remote: boolean; local: boolean; language: string | null; terms: string[] };
 
 export class ApiError extends Error { constructor(public status: number, message: string) { super(message); } }
 
@@ -16,13 +19,13 @@ export class PlugAndShipApi {
   private async get<T>(path: string, params: Record<string, string | number | undefined> = {}): Promise<T> {
     const u = new URL(`${this.base}/api/v1${path}`);
     for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== "") u.searchParams.set(k, String(v));
-    const r = await this.fetchImpl(u, { headers: { accept: "application/json", "user-agent": "plugandship-mcp/0.1.0" }, signal: AbortSignal.timeout(15_000) });
+    const r = await this.fetchImpl(u, { headers: { accept: "application/json", "user-agent": "plugandship-mcp/0.2.0" }, signal: AbortSignal.timeout(15_000) });
     const body = (await r.json().catch(() => ({}))) as T & { message?: string };
     if (!r.ok) throw new ApiError(r.status, body?.message || `HTTP ${r.status}`);
     return body;
   }
-  search(q: { query?: string; type?: string; client?: string; limit?: number }) {
-    return this.get<{ count: number; results: Tool[] }>("/search", { q: q.query, type: q.type, client: q.client, limit: q.limit });
+  search(q: { query?: string; type?: string; client?: string; remote?: boolean; limit?: number }) {
+    return this.get<{ count: number; results: Tool[]; interpreted?: Interpretation | null }>("/search", { q: q.query, type: q.type, client: q.client, remote: q.remote ? 1 : undefined, limit: q.limit });
   }
   tool(slug: string) { return this.get<{ tool: Tool }>(`/tools/${encodeURIComponent(slug)}`); }
   trending(period: string, type?: string, limit?: number) { return this.get<{ period: string; method: string; results: Tool[] }>("/trending", { period, type, limit }); }
